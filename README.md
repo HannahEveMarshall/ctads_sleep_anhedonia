@@ -24,9 +24,9 @@ Our sample, hypotheses, and analytic plan were preregistered on Open Science Fra
 │   └── figure_2.jpg                 # Figure 2
 ├── manuscript
 │   └── manuscript.pdf               # Manuscript
-└── supplementary_materials
+└── supplementary_material
     ├── reproducible_results.pdf     # Reproducible results using data only from participants who consented to data sharing
-    └── supplementary_materials.pdf  # Supplementary materials accompanying manuscript
+    └── supplementary_material.pdf   # Supplementary materials accompanying manuscript
 ```
 
 ## Note on Publicly Accessible Data
