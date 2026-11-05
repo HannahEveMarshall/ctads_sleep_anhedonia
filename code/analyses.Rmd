@@ -1,0 +1,1039 @@
+---
+title: "Statistical Pipeline for Sleep and the Daytime Course of Anhedonia in Adolescent Depression: An Ecological Momentary Assessment Study"
+author: "Hannah E. Marshall"
+date: "09/30/2026"
+output: pdf_document
+---
+
+# Set Up
+
+```{r Set Up, include = T}
+# Load libraries
+library(tidyverse)
+library(brms)
+library(lme4)
+library(posterior)
+
+# Set seed for reproducibility
+set.seed(123)
+```
+
+```{r Read Data, include = T}
+ctads_ema_data = read.csv("https://raw.githubusercontent.com/HannahEveMarshall/ctads_sleep_anhedonia/main/data/public_data.csv")
+```
+
+# Prepare Data
+
+```{r Select Variables, include = T}
+ctads_ema_data = ctads_ema_data %>% 
+  select(participant_id,
+         group,
+         ema_day,
+         prompt_number,
+         time,
+         sleep_disturb,
+         sleep_amount,
+         c_anhed_rev,
+         a_anhed_rev,
+         tiredness,
+         age_m,
+         sex,
+         race,
+         ethn,
+         income)
+
+# Ensure group is a factor variable
+ctads_ema_data$group = factor(ctads_ema_data$group)
+```
+
+```{r Reverse Code Variables, include = T}
+ctads_ema_data = ctads_ema_data %>% 
+  rowwise() %>% 
+  mutate(c_anhed = 100 - c_anhed_rev,
+         a_anhed = 100 - a_anhed_rev)
+```
+
+```{r Person-Mean Center Variables, include = T}
+ctads_ema_data = ctads_ema_data %>% 
+  # Group by participant
+  group_by(participant_id) %>% 
+  # Compute variable means
+  mutate(sleep_disturb_m = mean(sleep_disturb,
+                                na.rm = T),
+         c_anhed_m = mean(c_anhed,
+                          na.rm = T),
+         a_anhed_m = mean(a_anhed,
+                          na.rm = T),
+         sleep_amount_m = mean(sleep_amount,
+                               na.rm = T),
+         tiredness_m = mean(tiredness,
+                            na.rm = T)) %>%  
+  ungroup()
+
+# Person-mean center variables
+ctads_ema_data = ctads_ema_data %>% 
+  rowwise() %>% 
+  mutate(sleep_disturb_pc = sleep_disturb - sleep_disturb_m,
+         c_anhed_pc = c_anhed - c_anhed_m,
+         a_anhed_pc = a_anhed - a_anhed_m,
+         sleep_amount_pc = sleep_amount - sleep_amount_m,
+         tiredness_pc = tiredness - tiredness_m) %>% 
+  ungroup()
+```
+
+```{r Within-Day Sleep Variable Propagation, include = T}
+# Carry forward sleep reports to create complete rows
+ctads_ema_data = ctads_ema_data %>%
+  arrange(participant_id, 
+          ema_day, 
+          prompt_number) %>%
+  group_by(participant_id, 
+           ema_day) %>%
+  # Use the earliest non-missing sleep report for each variable
+  mutate(sleep_disturb = first(sleep_disturb[!is.na(sleep_disturb)],
+                                     default = NA_real_),
+         sleep_amount = first(sleep_amount[!is.na(sleep_amount)],
+                                    default = NA_real_)) %>%
+  ungroup()
+```
+
+# Create Function for Viewing Posterior Probabilities
+
+```{r Create Function for Viewing Posterior Probabilities, include = T}
+posterior_summary = function(fit) {
+  post = as.data.frame(brms::posterior_samples(fit))
+  fe = brms::fixef(fit)
+  
+  # Convert names of fixed effects to posterior column names
+  post_names = paste0("b_", 
+                      rownames(fe))
+  
+  # Compute posterior probabilities
+  P_gt_0 = sapply(post_names, 
+                  function(b) mean(post[[b]] > 0))
+  P_lt_0 = sapply(post_names, 
+                  function(b) mean(post[[b]] < 0))
+  
+  # Combine into one table
+  out = cbind(fe, 
+              P_lt_0,
+              P_gt_0)
+  
+  # Round outputs to 3 decimal places
+  out = round(out, 3)
+  
+  return(out)
+}
+```
+
+# Analyses for Which Results Are Reported in the Main Paper
+
+## Analyses With MDD as the Refeerence Group
+
+```{r Set MDD as the Reference Group, include = T}
+ctads_ema_data$group = relevel(ctads_ema_data$group, 
+                               ref = "1")
+```
+
+### Preregistered Analyses 
+
+#### Anticipatory Anhedonia as a Function of the Sleep Disturbances × Time of Day × Group Interaction (Full Model Results in Table S3)
+
+```{r Anticipatory Anhedonia Sleep Disturbances Model, include = T, warning = F, message = F}
+aa_sdis_model = brm(formula = a_anhed_pc ~ sleep_disturb_pc * time * group +
+                      (1 + time * sleep_disturb_pc | participant_id) + 
+                      (1 | participant_id:ema_day),
+                    data = ctads_ema_data,
+                    chains = 4, 
+                    cores = 4, 
+                    iter = 4000,
+                    seed = 123,
+                    refresh = 0)
+
+summary(aa_sdis_model)
+posterior_summary(aa_sdis_model)
+```
+
+#### Consummatory Anhedonia as a Function of the Sleep Disturbances × Time of Day × Group Interaction (Full Model Results in Table S4)
+
+```{r Consummatory Anhedonia Sleep Disturbances Model, include = T, warning = F, message = F}
+ca_sdis_model = brm(formula = c_anhed_pc ~ sleep_disturb_pc * time * group +
+                      (1 + time * sleep_disturb_pc | participant_id) + 
+                      (1 | participant_id:ema_day),
+                    data = ctads_ema_data,
+                    chains = 4, 
+                    cores = 4, 
+                    iter = 4000,
+                    seed = 123,
+                    refresh = 0)
+
+summary(ca_sdis_model)
+posterior_summary(ca_sdis_model)
+```
+
+### Exploratory Analyses
+
+#### Anticipatory Anhedonia as a Function of the Sleep Duration × Time of Day × Group Interaction (Full Model Results in Table S5)
+
+```{r Anticipatory Anhedonia Sleep Duration Model, include = T, warning = F, message = F}
+aa_sdur_model = brm(formula = a_anhed_pc ~  sleep_amount_pc * time * group +
+                      (1 + time * sleep_amount_pc | participant_id) + 
+                      (1 | participant_id:ema_day),
+                    data = ctads_ema_data,
+                    chains = 4, 
+                    cores = 4, 
+                    iter = 4000,
+                    seed = 123,
+                    refresh = 0)
+
+summary(aa_sdur_model)
+posterior_summary(aa_sdur_model)
+```
+
+#### Consummatory Anhedonia as a Function of the Sleep Duration × Time of Day × Group Interaction (Full Model Results in Table S6)
+
+```{r Consummatory Anhedonia Sleep Duration Model, include = T, warning = F, message = F}
+ca_sdur_model = brm(formula = c_anhed_pc ~  sleep_amount_pc * time * group +
+                      (1 + time * sleep_amount_pc | participant_id) + 
+                      (1 | participant_id:ema_day),
+                    data = ctads_ema_data,
+                    chains = 4, 
+                    cores = 4, 
+                    iter = 4000,
+                    seed = 123,
+                    refresh = 0)
+
+summary(ca_sdur_model)
+posterior_summary(ca_sdur_model)
+```
+
+## Analyses With HV as the Reference Group
+
+```{r Set HV as the Reference Group, include = T}
+ctads_ema_data$group = relevel(ctads_ema_data$group, 
+                               ref = "0")
+```
+
+### Preregistered Analyses
+
+#### Anticipatory Anhedonia as a Function of the Sleep Disturbances × Time of Day × Group Interaction, with Healthy Volunteers as the Reference Group (Full Model Results in Table S7)
+
+```{r Anticipatory Anhedonia Sleep Disturbances Model, include = T, warning = F, message = F}
+aa_sdis_model = brm(formula = a_anhed_pc ~ sleep_disturb_pc * time * group +
+                      (1 + time * sleep_disturb_pc | participant_id) + 
+                      (1 | participant_id:ema_day),
+                    data = ctads_ema_data,
+                    chains = 4, 
+                    cores = 4, 
+                    iter = 4000,
+                    seed = 123,
+                    refresh = 0)
+
+summary(aa_sdis_model)
+posterior_summary(aa_sdis_model)
+```
+
+#### Consummatory Anhedonia as a Function of the Sleep Disturbances × Time of Day × Group Interaction, with Healthy Volunteers as the Reference Group (Full Model Results in Table S8)
+
+```{r Consummatory Anhedonia Sleep Disturbances Model, include = T, warning = F, message = F}
+ca_sdis_model = brm(formula = c_anhed_pc ~ sleep_disturb_pc * time * group +
+                      (1 + time * sleep_disturb_pc | participant_id) + 
+                      (1 | participant_id:ema_day),
+                    data = ctads_ema_data,
+                    chains = 4, 
+                    cores = 4, 
+                    iter = 4000,
+                    seed = 123,
+                    refresh = 0)
+
+summary(ca_sdis_model)
+posterior_summary(ca_sdis_model)
+```
+
+### Exploratory Analyses
+
+#### Anticipatory Anhedonia as a Function of the Sleep Duration × Time of Day × Group Interaction, with Healthy Volunteers as the Reference Group (Full Model Results in Table S9)
+
+```{r Anticipatory Anhedonia Sleep Duration Model, include = T, warning = F, message = F}
+aa_sdur_model = brm(formula = a_anhed_pc ~  sleep_amount_pc * time * group +
+                      (1 + time * sleep_amount_pc | participant_id) + 
+                      (1 | participant_id:ema_day),
+                    data = ctads_ema_data,
+                    chains = 4, 
+                    cores = 4, 
+                    iter = 4000,
+                    seed = 123,
+                    refresh = 0)
+
+summary(aa_sdur_model)
+posterior_summary(aa_sdur_model)
+```
+
+#### Consummatory Anhedonia as a Function of the Sleep Duration × Time of Day × Group Interaction, with Healthy Volunteers as the Reference Group (Full Model Results in Table S10)
+
+```{r Consummatory Anhedonia Sleep Duration Model, include = T, warning = F, message = F}
+ca_sdur_model = brm(formula = c_anhed_pc ~  sleep_amount_pc * time * group +
+                      (1 + time * sleep_amount_pc | participant_id) + 
+                      (1 | participant_id:ema_day),
+                    data = ctads_ema_data,
+                    chains = 4, 
+                    cores = 4, 
+                    iter = 4000,
+                    seed = 123,
+                    refresh = 0)
+
+summary(ca_sdur_model)
+posterior_summary(ca_sdur_model)
+```
+
+# Analyses for Which Results Are Reported in Supplementary Material
+
+## Table S1: Descriptive Statistics and Intraclass Correlation Coefficients
+
+### Descriptive Statistics
+
+```{r Consummatory Anhedonia Descriptive Statistics, include = T}
+# Person-level summaries
+person_summary_c_anhed = ctads_ema_data %>%
+  # Group by participant
+  group_by(participant_id) %>%
+  # Compute person-level summaries
+  summarise(group = group,
+            c_anhed_mean = mean(c_anhed, 
+                                na.rm = T),
+            c_anhed_sd = sd(c_anhed, 
+                            na.rm = T),
+            c_anhed_min = min(c_anhed, 
+                              na.rm = T),
+            c_anhed_max = max(c_anhed, 
+                              na.rm = T),
+            .groups = "drop")
+
+# Group-level summaries
+summary_stats_by_group_c_anhed = person_summary_c_anhed %>%
+  # Group by diagnostic group
+  group_by(group) %>%
+  # Compute group-level summaries
+  summarise(M = mean(c_anhed_mean, 
+                     na.rm = T), 
+            SD_within = mean(c_anhed_sd, 
+                             na.rm = T), 
+            SD_between = sd(c_anhed_mean, 
+                            na.rm = T),
+            Min_within = mean(c_anhed_min, 
+                              na.rm = T),  
+            Min_between = min(c_anhed_mean, 
+                              na.rm = T), 
+            Max_within = mean(c_anhed_max, 
+                              na.rm = T), 
+            Max_between = max(c_anhed_mean, 
+                              na.rm = T), 
+            .groups = "drop")
+
+summary_stats_by_group_c_anhed
+```
+
+```{r Anticipatory Anhedonia Descriptive Statistics, include = T}
+# Person-level summaries
+person_summary_a_anhed = ctads_ema_data %>%
+  # Group by participant
+  group_by(participant_id) %>%
+  # Compute person-level summaries
+  summarise(group = group,
+            a_anhed_mean = mean(a_anhed, 
+                                na.rm = T),
+            a_anhed_sd = sd(a_anhed, 
+                            na.rm = T),
+            a_anhed_min = min(a_anhed, 
+                              na.rm = T),
+            a_anhed_max = max(a_anhed, 
+                              na.rm = T),
+            .groups = "drop")
+
+# Group-level summaries
+summary_stats_by_group_a_anhed = person_summary_a_anhed %>%
+  # Group by diagnostic group
+  group_by(group) %>%
+  # Compute group-level summaries
+  summarise(M = mean(a_anhed_mean, 
+                     na.rm = T),                  
+            SD_within = mean(a_anhed_sd, 
+                             na.rm = T),            
+            SD_between = sd(a_anhed_mean, 
+                            na.rm = T),           
+            Min_within = mean(a_anhed_min, 
+                              na.rm = T),          
+            Min_between = min(a_anhed_mean, 
+                              na.rm = T),         
+            Max_within = mean(a_anhed_max, 
+                              na.rm = T),   
+            Max_between = max(a_anhed_mean, 
+                              na.rm = T), 
+            .groups = "drop")
+
+summary_stats_by_group_a_anhed
+```
+
+```{r Sleep Disturbances Descriptive Statistics, include = T}
+# Person-level summaries
+person_summary_sleep_disturb = ctads_ema_data %>%
+  # Group by participant
+  group_by(participant_id) %>%
+  # Compute person-level summaries
+  summarise(group = group,
+            sleep_disturb_mean = mean(sleep_disturb, 
+                                      na.rm = T),
+            sleep_disturb_sd = sd(sleep_disturb, 
+                                  na.rm = T),
+            sleep_disturb_min = min(sleep_disturb, 
+                                    na.rm = T),
+            sleep_disturb_max = max(sleep_disturb, 
+                                    na.rm = T),
+            .groups = "drop")
+
+# Group-level summaries
+summary_stats_by_group_sleep_disturb = person_summary_sleep_disturb %>%
+  # Group by diagnostic group
+  group_by(group) %>%
+  # Compute group-level summaries
+  summarise(M = mean(sleep_disturb_mean, 
+                     na.rm = T),
+            SD_within = mean(sleep_disturb_sd, 
+                             na.rm = T),
+            SD_between = sd(sleep_disturb_mean, 
+                            na.rm = T), 
+            Min_within = mean(sleep_disturb_min, 
+                              na.rm = T), 
+            Min_between = min(sleep_disturb_mean, 
+                              na.rm = T),  
+            Max_within = mean(sleep_disturb_max, 
+                              na.rm = T),
+            Max_between = max(sleep_disturb_mean, 
+                              na.rm = T), 
+            .groups = "drop")
+
+summary_stats_by_group_sleep_disturb
+```
+
+```{r Sleep Duration Descriptive Statistics, include = T}
+# Person-level summaries
+person_summary_sleep_amount = ctads_ema_data %>%
+  # Group by participant
+  group_by(participant_id) %>%
+  # Compute person-level summaries
+  summarise(group = group,
+            sleep_amount_mean = mean(sleep_amount, 
+                                     na.rm = T),
+            sleep_amount_sd = sd(sleep_amount, 
+                                 na.rm = T),
+            sleep_amount_min = min(sleep_amount, 
+                                   na.rm = T),
+            sleep_amount_max = max(sleep_amount, 
+                                   .groups = "drop"))
+
+# Group-level summaries
+summary_stats_by_group_sleep_amount = person_summary_sleep_amount %>%
+  # Group by diagnostic group
+  group_by(group) %>%
+  # Compute group-level summaries
+  summarise(M = mean(sleep_amount_mean, 
+                     na.rm = T), 
+            SD_within = mean(sleep_amount_sd, 
+                             na.rm = T), 
+            SD_between = sd(sleep_amount_mean, 
+                            na.rm = T), 
+            Min_within = mean(sleep_amount_min, 
+                              na.rm = T), 
+            Min_between = min(sleep_amount_mean, 
+                              na.rm = T), 
+            Max_within = mean(sleep_amount_max, 
+                              na.rm = T),
+            Max_between = max(sleep_amount_mean, 
+                              na.rm = T),
+            .groups = "drop")
+
+summary_stats_by_group_sleep_amount
+```
+
+### Intraclass Correlation Coefficients
+
+```{r Separate MDD and HV Data, include = T}
+mdd_ctads_ema_data = ctads_ema_data %>% 
+  filter(group == 1)
+
+hc_ctads_ema_data = ctads_ema_data %>% 
+  filter(group == 0)
+```
+
+```{r Create a Function for Computing ICCs, include = T}
+compute_icc = function(data, 
+                       measure) {
+  
+  model = lmer(as.formula(paste(measure, "~ 1 + (1 | participant_id)")),
+               data = data,
+               REML = T)
+  
+  vc = as.data.frame(VarCorr(model))
+  var_between = vc$vcov[vc$grp == "participant_id"]
+  var_within = vc$vcov[vc$grp == "Residual"]
+  ICC = var_between / (var_between + var_within)
+  
+  return(ICC)
+}
+```
+
+```{r Sleep Disturbances ICC for MDD, include = T}
+compute_icc(data = mdd_ctads_ema_data,
+            measure = "sleep_disturb")
+```
+
+```{r Sleep Disturbances ICC for HV, include = T}
+compute_icc(data = hc_ctads_ema_data,
+            measure = "sleep_disturb")
+```
+
+```{r Sleep Duration ICC for MDD, include = T}
+compute_icc(data = mdd_ctads_ema_data,
+            measure = "sleep_amount")
+```
+
+```{r Sleep Duration ICC for HV, incldue = T}
+compute_icc(data = hc_ctads_ema_data,
+            measure = "sleep_amount")
+```
+
+```{r Anticipatory Anhedonia ICC for MDD, include = T}
+compute_icc(data = mdd_ctads_ema_data,
+            measure = "a_anhed")
+```
+
+```{r Anticipatory Anhedonia ICC for HV, include = T}
+compute_icc(data = hc_ctads_ema_data,
+            measure = "a_anhed")
+```
+
+```{r Consummatory Anhedonia ICC for MDD, include = T}
+compute_icc(data = mdd_ctads_ema_data,
+            measure = "c_anhed")
+```
+
+```{r Consummatory Anhedonia ICC for HV, include = T}
+compute_icc(data = hc_ctads_ema_data,
+            measure = "c_anhed")
+```
+
+## Table S2: Within-Person and Between-Person Posterior Correlations Between Variables
+
+```{r Create a Function for Savage-Dickey BF10 Calculations for LKJ(1) Correlations, include = T}
+# Create a function for Savage-Dickey BF10 calculations for LKJ(1) correlations to use after extracting posterior correlations
+BF10_from_draws = function(x) {
+  
+  # Compute posterior KDE
+  d = density(x,
+              from = -1,
+              to = 1,
+              n = 100000,
+              bw = "SJ")
+  
+  # Identify posterior density at rho = 0
+  post_at_0 = approx(d$x,
+                     d$y,
+                     xout = 0,
+                     rule = 2)$y
+  
+  # Identify LKJ(1) prior density at rho = 0
+  prior_at_0 = 0.5
+  
+  # If density at 0 is numerically zero, use the smallest positive density in the KDE
+  if (post_at_0 <= 0) {
+    post_at_0 = min(d$y[d$y > 0])
+  }
+  
+  # Compute Savage-Dickey BF10
+  BF10 = prior_at_0 / post_at_0
+  
+  BF10
+}
+```
+
+```{r MDD Posterior Correlations Between Anticipatory and Consummatory Anhedonia, include = T, warning = F, message = F}
+mdd_ca_aa_cor_model = brm(brmsformula(mvbind(c_anhed, a_anhed) ~ 1 + (1 | p | participant_id),
+                                      set_rescor(T)),
+                          data = mdd_ctads_ema_data,
+                          chains = 4, 
+                          cores = 4,
+                          iter = 4000,
+                          family = gaussian(),
+                          seed = 123)
+
+mdd_ca_aa_draws = as_draws_df(mdd_ca_aa_cor_model)
+
+mdd_ca_aa_within_r = mdd_ca_aa_draws$rescor__canhed__aanhed
+
+mdd_ca_aa_between_r = mdd_ca_aa_draws$cor_participant_id__canhed_Intercept__aanhed_Intercept
+
+# Posterior summaries
+mdd_ca_aa_within_summary = data.frame(effect = "Within-person",
+                                      r = mean(mdd_ca_aa_within_r),
+                                      CrI_low = quantile(mdd_ca_aa_within_r, 0.025),
+                                      CrI_high = quantile(mdd_ca_aa_within_r, 0.975))
+
+mdd_ca_aa_between_summary = data.frame(effect = "Between-person",
+                                       r = mean(mdd_ca_aa_between_r),
+                                       CrI_low = quantile(mdd_ca_aa_between_r, 0.025),
+                                       CrI_high = quantile(mdd_ca_aa_between_r, 0.975))
+
+cor_summary = bind_rows(mdd_ca_aa_within_summary, 
+                        mdd_ca_aa_between_summary)
+
+cor_summary
+```
+
+```{r BF10 for MDD Posterior Correlations Between Anticipatory and Consummatory Anhedonia, include = T}
+data.frame(Effect = c("Within-person", 
+                      "Between-person"),
+           BF10 = c(BF10_from_draws(mdd_ca_aa_within_r), 
+                    BF10_from_draws(mdd_ca_aa_between_r)))
+```
+
+```{r HV Posterior Correlations Between Anticipatory and Consummatory Anhedonia, include = T, warning = F, message = F}
+hv_ca_aa_cor_model = brm(brmsformula(mvbind(c_anhed, a_anhed) ~ 1 + (1 | p | participant_id),
+                                     set_rescor(T)),
+                         data = hc_ctads_ema_data,
+                         chains = 4, 
+                         cores = 4,
+                         iter = 4000,
+                         family = gaussian(),
+                         seed = 123)
+
+hv_ca_aa_draws = as_draws_df(hv_ca_aa_cor_model)
+
+hv_ca_aa_within_r = hv_ca_aa_draws$rescor__canhed__aanhed
+
+hv_ca_aa_between_r = hv_ca_aa_draws$cor_participant_id__canhed_Intercept__aanhed_Intercept
+
+# Posterior summaries
+hv_ca_aa_within_summary = data.frame(effect = "Within-person",
+                                     r = mean(hv_ca_aa_within_r),
+                                     CrI_low = quantile(hv_ca_aa_within_r, 0.025),
+                                     CrI_high = quantile(hv_ca_aa_within_r, 0.975))
+
+hv_ca_aa_between_summary = data.frame(effect = "Between-person",
+                                      r = mean(hv_ca_aa_between_r),
+                                      CrI_low = quantile(hv_ca_aa_between_r, 0.025),
+                                      CrI_high = quantile(hv_ca_aa_between_r, 0.975))
+
+cor_summary = bind_rows(hv_ca_aa_within_summary, 
+                        hv_ca_aa_between_summary)
+
+cor_summary
+```
+
+```{r BF10 for HV Posterior Correlations Between Anticipatory and Consummatory Anhedonia, include = T}
+data.frame(Effect = c("Within-person", 
+                      "Between-person"),
+           BF10 = c(BF10_from_draws(hv_ca_aa_within_r), 
+                    BF10_from_draws(hv_ca_aa_between_r)))
+```
+
+```{r MDD Posterior Correlations Between Sleep Disturbances and Sleep Duration, include = T, warning = F, message = F}
+mdd_sdis_sdur_cor_model = brm(brmsformula(mvbind(sleep_disturb, sleep_amount) ~ 1 + (1 | p | participant_id),
+                                          set_rescor(T)),
+                              data = mdd_ctads_ema_data,
+                              chains = 4, 
+                              cores = 4,
+                              iter = 4000,
+                              family = gaussian(),
+                              seed = 123)
+
+mdd_sdis_sdur_draws = as_draws_df(mdd_sdis_sdur_cor_model)
+
+mdd_sdis_sdur_within_r = mdd_sdis_sdur_draws$rescor__sleepdisturb__sleepamount
+
+mdd_sdis_sdur_between_r = mdd_sdis_sdur_draws$cor_participant_id__sleepdisturb_Intercept__sleepamount_Intercept
+
+# Posterior summaries
+mdd_sdis_sdur_within_summary = data.frame(effect = "Within-person",
+                                          r = mean(mdd_sdis_sdur_within_r),
+                                          CrI_low = quantile(mdd_sdis_sdur_within_r, 0.025),
+                                          CrI_high = quantile(mdd_sdis_sdur_within_r, 0.975))
+
+mdd_sdis_sdur_between_summary = data.frame(effect = "Between-person",
+                                           r = mean(mdd_sdis_sdur_between_r),
+                                           CrI_low = quantile(mdd_sdis_sdur_between_r, 0.025),
+                                           CrI_high = quantile(mdd_sdis_sdur_between_r, 0.975))
+
+cor_summary = bind_rows(mdd_sdis_sdur_within_summary, 
+                        mdd_sdis_sdur_between_summary)
+
+cor_summary
+```
+
+```{r BF10 for MDD Posterior Correlations Between Sleep Disturbances and Sleep Duration, include = T}
+data.frame(Effect = c("Within-person", 
+                      "Between-person"),
+           BF10 = c(BF10_from_draws(mdd_sdis_sdur_within_r), 
+                    BF10_from_draws(mdd_sdis_sdur_between_r)))
+```
+
+```{r HV Posterior Correlations Between Consummatory and Anticipatory Anhedonia, include = T, warning = F, message = F}
+hv_sdis_sdur_cor_model = brm(brmsformula(mvbind(sleep_disturb, sleep_amount) ~ 1 + (1 | p | participant_id),
+                                         set_rescor(T)),
+                             data = hc_ctads_ema_data,
+                             chains = 4, 
+                             cores = 4,
+                             iter = 4000,
+                             family = gaussian(),
+                             seed = 123)
+
+hv_sdis_sdur_draws = as_draws_df(hv_sdis_sdur_cor_model)
+
+hv_sdis_sdur_within_r = hv_sdis_sdur_draws$rescor__sleepdisturb__sleepamount
+
+hv_sdis_sdur_between_r = hv_sdis_sdur_draws$cor_participant_id__sleepdisturb_Intercept__sleepamount_Intercept
+
+# Posterior summaries
+hv_sdis_sdur_within_summary = data.frame(effect = "Within-person",
+                                         r = mean(hv_sdis_sdur_within_r),
+                                         CrI_low = quantile(hv_sdis_sdur_within_r, 0.025),
+                                         CrI_high = quantile(hv_sdis_sdur_within_r, 0.975))
+
+hv_sdis_sdur_between_summary = data.frame(effect = "Between-person",
+                                          r = mean(hv_sdis_sdur_between_r),
+                                          CrI_low = quantile(hv_sdis_sdur_between_r, 0.025),
+                                          CrI_high = quantile(hv_sdis_sdur_between_r, 0.975))
+
+cor_summary = bind_rows(hv_sdis_sdur_within_summary, 
+                        hv_sdis_sdur_between_summary)
+
+cor_summary
+```
+
+```{r BF10 for HV Posterior Correlations Between Consummatory and Anticipatory Anhedonia, include = T}
+data.frame(Effect = c("Within-person", 
+                      "Between-person"),
+           BF10 = c(BF10_from_draws(hv_sdis_sdur_within_r), 
+                    BF10_from_draws(hv_sdis_sdur_between_r)))
+```
+
+## Tables S11-S14
+
+```{r Set MDD as the Reference Group, include = T}
+ctads_ema_data$group = relevel(ctads_ema_data$group, 
+                               ref = "1")
+```
+
+```{r Set Females as the Reference Group, include = T}
+# Specify reference group as MDD group
+ctads_ema_data$sex = factor(ctads_ema_data$sex, 
+                            levels = c("F", "M"))
+```
+
+### Table S11: Anticipatory Anhedonia as a Function of the Sleep Disturbances × Time of Day × Group Interaction, Controlling for Age and Sex
+
+```{r Anticipatory Anhedonia Sleep Disturbances Model with Sex and Age, include = T, warning = F, message = F}
+aa_sdis_cov_model = brm(formula = a_anhed_pc ~ sleep_disturb_pc * time * group +
+                          sex + age_m + 
+                          (1 + time * sleep_disturb_pc | participant_id) + 
+                          (1 | participant_id:ema_day),
+                        data = ctads_ema_data,
+                        chains = 4, 
+                        cores = 4, 
+                        iter = 4000,
+                        seed = 123,
+                        refresh = 0)
+
+summary(aa_sdis_cov_model)
+posterior_summary(aa_sdis_cov_model)
+```
+
+### Table S12: Consummatory Anhedonia as a Function of the Sleep Disturbances × Time of Day × Group Interaction, Controlling for Age and Sex
+
+```{r Consummatory Anhedonia Sleep Disturbances Model with Sex and Age, include = T, warning = F, message = F}
+ca_sdis_cov_model = brm(formula = c_anhed_pc ~ sleep_disturb_pc * time * group +
+                          sex + age_m + 
+                          (1 + time * sleep_disturb_pc | participant_id) + 
+                          (1 | participant_id:ema_day),
+                        data = ctads_ema_data,
+                        chains = 4, 
+                        cores = 4, 
+                        iter = 4000,
+                        seed = 123,
+                        refresh = 0)
+
+summary(ca_sdis_cov_model)
+posterior_summary(ca_sdis_cov_model)
+```
+
+### Table S13: Anticipatory Anhedonia as a Function of the Sleep Duration × Time of Day × Group Interaction, Controlling for Age and Sex
+
+```{r Anticipatory Anhedonia Sleep Duration Model with Sex and Age, include = T, warning = F, message = F}
+aa_sdur_cov_model = brm(formula = a_anhed_pc ~ sleep_amount_pc * time * group +
+                          sex + age_m + 
+                          (1 + time * sleep_disturb_pc | participant_id) + 
+                          (1 | participant_id:ema_day),
+                        data = ctads_ema_data,
+                        chains = 4, 
+                        cores = 4, 
+                        iter = 4000,
+                        seed = 123,
+                        refresh = 0)
+
+summary(aa_sdur_cov_model)
+posterior_summary(aa_sdur_cov_model)
+```
+
+### Table S14: Consummatory Anhedonia as a Function of the Sleep Duration × Time of Day × Group Interaction, Controlling for Age and Sex
+
+```{r Consummatory Anhedonia Sleep Duration Model with Sex and Age, include = T, warning = F, message = F}
+ca_sdur_cov_model = brm(formula = c_anhed_pc ~ sleep_amount_pc * time * group +
+                          sex + age_m + 
+                          (1 + time * sleep_disturb_pc | participant_id) + 
+                          (1 | participant_id:ema_day),
+                        data = ctads_ema_data,
+                        chains = 4, 
+                        cores = 4, 
+                        iter = 4000,
+                        seed = 123,
+                        refresh = 0)
+
+summary(ca_sdur_cov_model)
+posterior_summary(ca_sdur_cov_model)
+```
+
+## Tables S15-S18
+
+```{r Set HV as the Reference Group, include = T}
+ctads_ema_data$group = relevel(ctads_ema_data$group, 
+                               ref = "0")
+```
+
+### Table S15: Anticipatory Anhedonia as a Function of the Sleep Disturbances × Time of Day × Group Interaction, Controlling for Age and Sex
+
+```{r Anticipatory Anhedonia Sleep Disturbances Model with Sex and Age, include = T, warning = F, message = F}
+aa_sdis_cov_model = brm(formula = a_anhed_pc ~ sleep_disturb_pc * time * group +
+                          sex + age_m + 
+                          (1 + time * sleep_disturb_pc | participant_id) + 
+                          (1 | participant_id:ema_day),
+                        data = ctads_ema_data,
+                        chains = 4, 
+                        cores = 4, 
+                        iter = 4000,
+                        seed = 123,
+                        refresh = 0)
+
+summary(aa_sdis_cov_model)
+posterior_summary(aa_sdis_cov_model)
+```
+
+### Table S16: Consummatory Anhedonia as a Function of the Sleep Disturbances × Time of Day × Group Interaction, Controlling for Age and Sex
+
+```{r Consummatory Anhedonia Sleep Disturbances Model with Sex and Age, include = T, warning = F, message = F}
+ca_sdis_cov_model = brm(formula = c_anhed_pc ~ sleep_disturb_pc * time * group +
+                          sex + age_m + 
+                          (1 + time * sleep_disturb_pc | participant_id) + 
+                          (1 | participant_id:ema_day),
+                        data = ctads_ema_data,
+                        chains = 4, 
+                        cores = 4, 
+                        iter = 4000,
+                        seed = 123,
+                        refresh = 0)
+
+summary(ca_sdis_cov_model)
+posterior_summary(ca_sdis_cov_model)
+```
+
+### Table S17: Anticipatory Anhedonia as a Function of the Sleep Duration × Time of Day × Group Interaction, Controlling for Age and Sex
+
+```{r Anticipatory Anhedonia Sleep Duration Model with Sex and Age, include = T, warning = F, message = F}
+aa_sdur_cov_model = brm(formula = a_anhed_pc ~ sleep_amount_pc * time * group +
+                          sex + age_m + 
+                          (1 + time * sleep_disturb_pc | participant_id) + 
+                          (1 | participant_id:ema_day),
+                        data = ctads_ema_data,
+                        chains = 4, 
+                        cores = 4, 
+                        iter = 4000,
+                        seed = 123,
+                        refresh = 0)
+
+summary(aa_sdur_cov_model)
+posterior_summary(aa_sdur_cov_model)
+```
+
+### Table S18: Consummatory Anhedonia as a Function of the Sleep Duration × Time of Day × Group Interaction, Controlling for Age and Sex
+
+```{r Consummatory Anhedonia Sleep Duration Model with Sex and Age, include = T, warning = F, message = F}
+ca_sdur_cov_model = brm(formula = c_anhed_pc ~ sleep_amount_pc * time * group +
+                          sex + age_m + 
+                          (1 + time * sleep_disturb_pc | participant_id) + 
+                          (1 | participant_id:ema_day),
+                        data = ctads_ema_data,
+                        chains = 4, 
+                        cores = 4, 
+                        iter = 4000,
+                        seed = 123,
+                        refresh = 0)
+
+summary(ca_sdur_cov_model)
+posterior_summary(ca_sdur_cov_model)
+```
+
+## Tables S19-S22
+
+```{r Set MDD as the Reference Group, include = T}
+ctads_ema_data$group = relevel(ctads_ema_data$group, 
+                               ref = "1")
+```
+
+### Table S19: Anticipatory Anhedonia as a Function of the Sleep Disturbances × Time of Day × Group Interaction, Controlling for Tiredness
+
+```{r Anticipatory Anhedonia Sleep Disturbances Model with Tiredness, include = T, warning = F, message = F}
+aa_sdis_tired_model = brm(formula = a_anhed_pc ~ sleep_disturb_pc * time * group +
+                            tiredness_pc + 
+                            (1 + time * sleep_disturb_pc | participant_id) + 
+                            (1 | participant_id:ema_day),
+                          data = ctads_ema_data,
+                          chains = 4, 
+                          cores = 4, 
+                          iter = 4000,
+                          seed = 123,
+                          refresh = 0)
+
+summary(aa_sdis_tired_model)
+posterior_summary(aa_sdis_tired_model)
+```
+
+### Table S20: Consummatory Anhedonia as a Function of the Sleep Disturbances × Time of Day × Group Interaction, Controlling for Tiredness
+
+```{r Consummatory Anhedonia Sleep Disturbances Model with Tiredness, include = T, warning = F, message = F}
+ca_sdis_tired_model = brm(formula = c_anhed_pc ~ sleep_disturb_pc * time * group +
+                            tiredness_pc + 
+                            (1 + time * sleep_disturb_pc | participant_id) + 
+                            (1 | participant_id:ema_day),
+                          data = ctads_ema_data,
+                          chains = 4, 
+                          cores = 4, 
+                          iter = 4000,
+                          seed = 123,
+                          refresh = 0)
+
+summary(ca_sdis_tired_model)
+posterior_summary(ca_sdis_tired_model)
+```
+
+### Table S21: Anticipatory Anhedonia as a Function of the Sleep Duration × Time of Day × Group Interaction, Controlling for Tiredness
+
+```{r Anticipatory Anhedonia Sleep Duration Model with Tiredness, include = T, warning = F, message = F}
+aa_sdur_tired_model = brm(formula = a_anhed_pc ~ sleep_amount_pc * time * group +
+                            tiredness_pc + 
+                            (1 + time * sleep_amount_pc | participant_id) + 
+                            (1 | participant_id:ema_day),
+                          data = ctads_ema_data,
+                          chains = 4, 
+                          cores = 4, 
+                          iter = 4000,
+                          seed = 123,
+                          refresh = 0)
+
+summary(aa_sdur_tired_model)
+posterior_summary(aa_sdur_tired_model)
+```
+
+### Table S22: Consummatory Anhedonia as a Function of the Sleep Duration × Time of Day × Group Interaction, Controlling for Tiredness
+
+```{r Consummatory Anhedonia Sleep Duration Model with Tiredness, include = T, warning = F, message = F}
+ca_sdur_tired_model = brm(formula = c_anhed_pc ~ sleep_amount_pc * time * group +
+                            tiredness_pc + 
+                            (1 + time * sleep_amount_pc | participant_id) + 
+                            (1 | participant_id:ema_day),
+                          data = ctads_ema_data,
+                          chains = 4, 
+                          cores = 4, 
+                          iter = 4000,
+                          seed = 123,
+                          refresh = 0)
+
+summary(ca_sdur_tired_model)
+posterior_summary(ca_sdur_tired_model)
+```
+
+## Tables S23-S26
+
+```{r Set HV as the Reference Group, include = T}
+ctads_ema_data$group = relevel(ctads_ema_data$group, 
+                               ref = "0")
+```
+
+### Table S23: Anticipatory Anhedonia as a Function of the Sleep Disturbances × Time of Day × Group Interaction, Controlling for Tiredness, with Healthy Volunteers as the Reference Group
+
+```{r Anticipatory Anhedonia Sleep Disturbances Model with Tiredness, include = T, warning = F, message = F}
+aa_sdis_tired_model = brm(formula = a_anhed_pc ~ sleep_disturb_pc * time * group +
+                            tiredness_pc + 
+                            (1 + time * sleep_disturb_pc | participant_id) + 
+                            (1 | participant_id:ema_day),
+                          data = ctads_ema_data,
+                          chains = 4, 
+                          cores = 4, 
+                          iter = 4000,
+                          seed = 123,
+                          refresh = 0)
+
+summary(aa_sdis_tired_model)
+posterior_summary(aa_sdis_tired_model)
+```
+
+### Table S24: Consummatory Anhedonia as a Function of the Sleep Disturbances × Time of Day × Group Interaction, Controlling for Tiredness, with Healthy Volunteers as the Reference Group
+
+```{r Consummatory Anhedonia Sleep Disturbances Model with Tiredness, include = T, warning = F, message = F}
+ca_sdis_tired_model = brm(formula = c_anhed_pc ~ sleep_disturb_pc * time * group +
+                            tiredness_pc + 
+                            (1 + time * sleep_disturb_pc | participant_id) + 
+                            (1 | participant_id:ema_day),
+                          data = ctads_ema_data,
+                          chains = 4, 
+                          cores = 4, 
+                          iter = 4000,
+                          seed = 123,
+                          refresh = 0)
+
+summary(ca_sdis_tired_model)
+posterior_summary(ca_sdis_tired_model)
+```
+
+### Table S25: Anticipatory Anhedonia as a Function of the Sleep Duration × Time of Day × Group Interaction, Controlling for Tiredness, with Healthy Volunteers as the Reference Group
+
+```{r Anticipatory Anhedonia Sleep Duration Model with Tiredness, include = T, warning = F, message = F}
+aa_sdur_tired_model = brm(formula = a_anhed_pc ~ sleep_amount_pc * time * group +
+                            tiredness_pc + 
+                            (1 + time * sleep_amount_pc | participant_id) + 
+                            (1 | participant_id:ema_day),
+                          data = ctads_ema_data,
+                          chains = 4, 
+                          cores = 4, 
+                          iter = 4000,
+                          seed = 123,
+                          refresh = 0)
+
+summary(aa_sdur_tired_model)
+posterior_summary(aa_sdur_tired_model)
+```
+
+### Table S26: Consummatory Anhedonia as a Function of the Sleep Duration × Time of Day × Group Interaction, Controlling for Tiredness, with Healthy Volunteers as the Reference Group 
+
+```{r Consummatory Anhedonia Sleep Duration Model with Tiredness, include = T, warning = F, message = F}
+ca_sdur_tired_model = brm(formula = c_anhed_pc ~ sleep_amount_pc * time * group +
+                            tiredness_pc + 
+                            (1 + time * sleep_amount_pc | participant_id) + 
+                            (1 | participant_id:ema_day),
+                          data = ctads_ema_data,
+                          chains = 4, 
+                          cores = 4, 
+                          iter = 4000,
+                          seed = 123,
+                          refresh = 0)
+
+summary(ca_sdur_tired_model)
+posterior_summary(ca_sdur_tired_model)
+```
