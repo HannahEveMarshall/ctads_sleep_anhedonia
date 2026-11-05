@@ -1,6 +1,12 @@
 # Sleep and the Daytime Course of Anhedonia in Adolescent Depression: An Ecological Momentary Assessment Study
 
-This repository (still in development) contains materials corresponding to the paper "Sleep and the Daytime Course of Anhedonia in Adolescent Depression: An Ecological Momentary Assessment Study" by Hannah E. Marshall, Linda Nduka, Tahjanee Givens, Caroline Miller, Mollie Davis, Chana Engel, Kenneth Towbin, Daniel Pine, and Katharina Kircanski
+This repository contains materials corresponding to the manuscriptb "Sleep and the Daytime Course of Anhedonia in Adolescent Depression: An Ecological Momentary Assessment Study" by Hannah E. Marshall, Linda Nduka, Tahjanee Givens, Caroline Miller, Mollie Davis, Chana Engel, Kenneth Towbin, Daniel Pine, and Katharina Kircanski.
+
+## Citation
+
+If you use this repository, including adaptations of our code, in your research, please cite the associated paper:
+
+Marshall, H. E., Nduka, L., Givens, T., Miller, C., Davis, M., Engel, Towbin, K., C., Pine, D., & Kircanski, K. (2026). _Sleep and the daytime course of anhedonia in adolescent depression: An ecological momentary assessment study_ [Preprint]. Open Science Framework. https://osf.io/...
 
 ## Synopsis
 
@@ -16,7 +22,7 @@ Our sample, hypotheses, and analytic plan were preregistered on Open Science Fra
 /ctads_sleep_anhedonia
 ├── README.md
 ├── code
-│   └── pipeline.Rmd                 # Full statistical pipeline
+│   └── analyses.Rmd                 # Full statistical pipeline
 ├── data
 │   └── public_data.csv              # Deidentified data only from participants who consented to data sharing
 ├── figures
@@ -25,8 +31,7 @@ Our sample, hypotheses, and analytic plan were preregistered on Open Science Fra
 ├── manuscript
 │   └── manuscript.pdf               # Manuscript
 └── supplementary_material
-    ├── reproducible_results.pdf     # Reproducible results using data only from participants who consented to data sharing
-    └── supplementary_material.pdf   # Supplementary materials accompanying manuscript
+    └── supplementary_material.pdf   # Supplementary material accompanying manuscript
 ```
 
 ## Note on Publicly Accessible Data
